@@ -30,7 +30,7 @@ class ApiTests(unittest.TestCase):
         return {"Authorization": f"Bearer {token}"}
 
     def new_product(self, sku):
-        return CatalogService(self.database).create_product(sku, "Headphones", "Audio", 12500, 10)
+        return CatalogService(self.database).create_product(sku, "Laptop", "laptop", 12500, 10)
 
     def test_storefront_is_served_without_changing_api_responses(self):
         response = self.client.get("/")
@@ -39,7 +39,8 @@ class ApiTests(unittest.TestCase):
         self.assertIn(b"FORME", response.data)
         self.assertIn(b'id="product-grid"', response.data)
         self.assertIn(b'id="checkout-form"', response.data)
-        for asset in ["storefront.css", "storefront.js"]:
+        self.assertIn(b'id="theme-button"', response.data)
+        for asset in ["storefront.css", "storefront.js", "forme-mark.svg"]:
             with self.client.get(f"/static/{asset}") as asset_response:
                 self.assertEqual(asset_response.status_code, 200)
         self.assertTrue(self.client.get("/api/products").is_json)
@@ -67,7 +68,7 @@ class ApiTests(unittest.TestCase):
 
     def test_admin_can_create_and_restock_products(self):
         response = self.client.post("/api/products", headers=self.admin, json={
-            "sku": "ADMIN", "name": "Monitor", "category": "Displays", "price_cents": 23000, "stock": 3,
+            "sku": "ADMIN", "name": "Television", "category": "tv", "price_cents": 23000, "stock": 3,
         })
         self.assertEqual(response.status_code, 201)
         product_id = response.get_json()["id"]
@@ -118,13 +119,36 @@ class ApiTests(unittest.TestCase):
         self.assertIn("GET", method.headers["Allow"])
 
     def test_catalog_pagination_and_sql_injection_are_safe(self):
-        self.new_product("FILTER")
+        product = self.new_product("FILTER")
+        electronic = CatalogService(self.database).create_product("FILTER-ELECTRONIC", "Wireless Mouse", "electronics", 3499, 5)
         self.assertEqual(self.client.get("/api/products?limit=1").status_code, 200)
         self.assertEqual(self.client.get("/api/products?limit=abc").status_code, 400)
         self.assertEqual(self.client.get("/api/products?limit=101").status_code, 400)
         response = self.client.get("/api/products", query_string={"category": "' OR 1=1 --"})
-        self.assertEqual(response.get_json()["items"], [])
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(self.client.get("/api/products?category=laptop").get_json()["items"][0]["id"], product["id"])
+        self.assertEqual(self.client.get("/api/products?category=Electronics").status_code, 400)
+        electronics = self.client.get("/api/products?category=electronics").get_json()["items"]
+        self.assertIn(electronic["id"], [item["id"] for item in electronics])
         self.assertEqual(self.client.get("/health").status_code, 200)
+
+    def test_wishlist_requires_auth_and_is_owned_by_each_customer(self):
+        product = self.new_product("WISH-LAPTOP")
+        path = f"/api/wishlist/items/{product['id']}"
+        self.assertEqual(self.client.get("/api/wishlist").status_code, 401)
+        self.assertEqual(self.client.post(path).status_code, 401)
+        self.assertEqual(self.client.delete(path).status_code, 401)
+
+        saved = self.client.post(path, headers=self.customer)
+        self.assertEqual(saved.status_code, 200)
+        self.assertEqual(saved.get_json()["product_id"], product["id"])
+        self.assertEqual(self.client.post(path, headers=self.customer).status_code, 200)
+        self.assertEqual(len(self.client.get("/api/wishlist", headers=self.customer).get_json()["items"]), 1)
+        self.assertEqual(self.client.get("/api/wishlist", headers=self.other).get_json()["items"], [])
+        self.assertEqual(self.client.delete(path, headers=self.other).status_code, 404)
+        self.assertEqual(len(self.client.get("/api/wishlist", headers=self.customer).get_json()["items"]), 1)
+        self.assertEqual(self.client.delete(path, headers=self.customer).status_code, 204)
+        self.assertEqual(self.client.get("/api/wishlist", headers=self.customer).get_json()["items"], [])
 
 
 if __name__ == "__main__":

@@ -5,7 +5,7 @@ from pathlib import Path
 
 from shop.database import Database
 from shop.errors import ConflictError, NotFoundError, ValidationError
-from shop.services import CartService, CatalogService, OrderService
+from shop.services import CartService, CatalogService, OrderService, WishlistService
 
 
 class ShoppingTests(unittest.TestCase):
@@ -22,10 +22,11 @@ class ShoppingTests(unittest.TestCase):
         self.catalog = CatalogService(self.database)
         self.cart = CartService(self.database)
         self.orders = OrderService(self.database)
-        self.product = self.catalog.create_product("KB-01", "Keyboard", "Electronics", 4999, 5)
+        self.wishlist = WishlistService(self.database)
+        self.product = self.catalog.create_product("KB-01", "Laptop", "laptop", 4999, 5)
 
     def test_checkout_is_atomic_when_later_item_has_no_stock(self):
-        second = self.catalog.create_product("MS-01", "Mouse", "Electronics", 1999, 1)
+        second = self.catalog.create_product("MS-01", "Laptop mouse", "laptop", 1999, 1)
         self.cart.set_item(1, self.product["id"], 2)
         self.cart.set_item(1, second["id"], 1)
         self.catalog.adjust_stock(second["id"], -1)
@@ -74,9 +75,31 @@ class ShoppingTests(unittest.TestCase):
             with self.subTest(quantity=quantity), self.assertRaises(ValidationError):
                 self.cart.set_item(1, self.product["id"], quantity)
         with self.assertRaises(ValidationError):
-            self.catalog.create_product("NEG", "Invalid", "Test", -1, 1)
+            self.catalog.create_product("NEG", "Invalid", "tv", -1, 1)
         with self.assertRaises(ConflictError):
-            self.catalog.create_product("KB-01", "Duplicate", "Test", 100, 1)
+            self.catalog.create_product("KB-01", "Duplicate", "tv", 100, 1)
+
+    def test_product_categories_are_canonical(self):
+        for category in ["Electronics", "phone", "TV", "", None]:
+            with self.subTest(category=category), self.assertRaises(ValidationError):
+                self.catalog.create_product(f"INVALID-{category}", "Invalid", category, 100, 1)
+        with self.assertRaises(ValidationError):
+            self.catalog.list_products("Electronics")
+        product = self.catalog.create_product("EL-01", "Wireless Mouse", "electronics", 3499, 12)
+        self.assertEqual(self.catalog.list_products("electronics")[0]["id"], product["id"])
+
+    def test_wishlist_is_persistent_deduplicated_and_user_scoped(self):
+        self.wishlist.add_item(1, self.product["id"])
+        self.wishlist.add_item(1, self.product["id"])
+        self.assertEqual(len(self.wishlist.list_items(1)), 1)
+        self.assertEqual(self.wishlist.list_items(2), [])
+        reopened = Database(self.database.path)
+        reopened.initialize()
+        self.assertEqual(WishlistService(reopened).list_items(1)[0]["id"], self.product["id"])
+        with self.assertRaises(NotFoundError):
+            self.wishlist.remove_item(2, self.product["id"])
+        self.wishlist.remove_item(1, self.product["id"])
+        self.assertEqual(self.wishlist.list_items(1), [])
 
     def test_empty_cart_cannot_be_checked_out(self):
         with self.assertRaises(ValidationError):

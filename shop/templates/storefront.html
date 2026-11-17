@@ -9,6 +9,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;450;500;550;600;650;700&family=Instrument+Serif&display=swap" rel="stylesheet">
+  <script>try { if (localStorage.getItem("forme-theme") === "dark") document.documentElement.dataset.theme = "dark"; } catch {}</script>
   <link rel="stylesheet" href="{{ url_for('static', filename='storefront.css') }}">
   <script defer src="{{ url_for('static', filename='lucide.min.js') }}"></script>
   <script defer src="{{ url_for('static', filename='storefront.js') }}"></script>
@@ -17,7 +18,7 @@
   <a class="skip-link" href="#catalog">Skip to products</a>
   <div class="announcement"><span>A little less ordinary. A little more everyday.</span><span class="announcement-note">The considered collection <i data-lucide="asterisk"></i></span></div>
   <header class="site-header">
-    <a class="brand" href="/" aria-label="FORME home">forme<span class="brand-mark">.</span></a>
+    <a class="brand" href="/" aria-label="FORME home"><img class="brand-symbol" src="{{ url_for('static', filename='forme-mark.svg') }}" alt="" width="36" height="36"><span class="brand-wordmark">FORME</span></a>
     <nav class="main-nav" aria-label="Main navigation">
       <button class="nav-link active" data-action="shop" aria-current="page">Shop</button>
       <button class="nav-link" data-action="saved">Saved <span id="saved-count"></span></button>
@@ -25,7 +26,8 @@
     </nav>
     <label class="search-field"><i data-lucide="search"></i><input id="search" type="search" placeholder="Find your everyday essential" aria-label="Search products" autocomplete="off"><span class="search-hint">Search</span></label>
     <div class="header-actions">
-      <button class="icon-button" id="account-button" data-action="account" aria-label="Sign in" title="Your account"><i data-lucide="user-round"></i></button>
+      <button class="icon-button" id="theme-button" data-action="theme" aria-label="Switch to dark theme" title="Switch to dark theme" aria-pressed="false"><i data-lucide="moon"></i></button>
+      <button class="icon-button" id="account-button" data-action="account" aria-label="Sign in" title="Your account"><i data-lucide="user-round"></i><span class="header-account-name" id="header-account-name"></span></button>
       <button class="bag-button" data-action="bag" aria-label="Open shopping bag" title="Shopping bag"><i data-lucide="shopping-bag"></i><span class="bag-label">Bag</span><span class="count" id="bag-count">0</span></button>
     </div>
   </header>
@@ -55,10 +57,10 @@
     <section class="values-band" aria-label="Our collection"><div><i data-lucide="scan-eye"></i><p><strong>A considered collection</strong><span>Less noise. More of what matters.</span></p></div><div><i data-lucide="package-check"></i><p><strong>The details make the difference</strong><span>Everyday objects, thoughtfully chosen.</span></p></div><div><i data-lucide="leaf"></i><p><strong>Made for your daily rotation</strong><span>At home, at work, on the move.</span></p></div></section>
   </main>
 
-  <footer class="site-footer"><div><a class="brand" href="/">forme<span class="brand-mark">.</span></a><span>Everyday, considered.</span></div><p>FORME &copy; {{ 2026 }} <span>Independent by design.</span></p><button class="text-button" data-action="top">Back to top <i data-lucide="arrow-up"></i></button></footer>
+  <footer class="site-footer"><div><a class="brand" href="/" aria-label="FORME home"><img class="brand-symbol" src="{{ url_for('static', filename='forme-mark.svg') }}" alt="" width="36" height="36"><span class="brand-wordmark">FORME</span></a><span>Everyday, considered.</span></div><p>FORME &copy; {{ 2026 }} <span>Independent by design.</span></p><button class="text-button" data-action="top">Back to top <i data-lucide="arrow-up"></i></button></footer>
 
   <dialog id="auth-dialog" class="modal auth-modal" aria-labelledby="auth-title">
-    <div class="modal-top"><span class="brand small-brand">forme<span class="brand-mark">.</span></span><button class="icon-button" data-close="auth-dialog" aria-label="Close account dialog" title="Close"><i data-lucide="x"></i></button></div>
+    <div class="modal-top"><a class="brand small-brand" href="/" aria-label="FORME home"><img class="brand-symbol" src="{{ url_for('static', filename='forme-mark.svg') }}" alt="" width="36" height="36"><span class="brand-wordmark">FORME</span></a><button class="icon-button" data-close="auth-dialog" aria-label="Close account dialog" title="Close"><i data-lucide="x"></i></button></div>
     <div class="auth-tabs" role="group" aria-label="Account mode"><button class="selected" data-auth-mode="login" aria-pressed="true">Sign in</button><button data-auth-mode="register" aria-pressed="false">Create account</button></div>
     <h2 id="auth-title">Good to see you.</h2><p class="muted" id="auth-subtitle">Your favorites, your bag, your everyday.</p>
     <form id="auth-form">
@@ -70,7 +72,7 @@
     </form>
   </dialog>
 
-  <dialog id="account-dialog" class="modal" aria-labelledby="account-title"><div class="modal-top"><p class="eyebrow">YOUR ACCOUNT</p><button class="icon-button" data-close="account-dialog" aria-label="Close account" title="Close"><i data-lucide="x"></i></button></div><h2 id="account-title">Hello.</h2><p class="muted" id="account-email"></p><button class="secondary-button full-width" data-action="account-orders">View your orders <i data-lucide="package"></i></button><button class="text-button logout-button" data-action="logout">Sign out <i data-lucide="log-out"></i></button></dialog>
+  <dialog id="account-dialog" class="modal" aria-labelledby="account-title"><div class="modal-top"><a class="brand small-brand" href="/" aria-label="FORME home"><img class="brand-symbol" src="{{ url_for('static', filename='forme-mark.svg') }}" alt="" width="36" height="36"><span class="brand-wordmark">FORME</span></a><button class="icon-button" data-close="account-dialog" aria-label="Close account" title="Close"><i data-lucide="x"></i></button></div><p class="eyebrow">YOUR ACCOUNT</p><h2 id="account-title">Hello.</h2><p class="muted" id="account-email"></p><button class="secondary-button full-width" data-action="account-orders">View your orders <i data-lucide="package"></i></button><button class="text-button logout-button" data-action="logout">Sign out <i data-lucide="log-out"></i></button></dialog>
 
   <dialog id="bag-dialog" class="drawer" aria-labelledby="bag-title">
     <div class="drawer-header"><div><p class="eyebrow">THE GOOD THINGS</p><h2 id="bag-title">Your bag<span>.</span></h2></div><button class="icon-button" data-close="bag-dialog" aria-label="Close shopping bag" title="Close"><i data-lucide="x"></i></button></div>

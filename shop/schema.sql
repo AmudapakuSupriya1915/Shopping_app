@@ -30,6 +30,13 @@ CREATE TABLE IF NOT EXISTS cart_items (
     PRIMARY KEY (user_id, product_id)
 );
 
+CREATE TABLE IF NOT EXISTS wishlist_items (
+    user_id INTEGER NOT NULL REFERENCES users(id),
+    product_id INTEGER NOT NULL REFERENCES products(id),
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (user_id, product_id)
+);
+
 CREATE TABLE IF NOT EXISTS orders (
     id INTEGER PRIMARY KEY,
     user_id INTEGER NOT NULL REFERENCES users(id),
@@ -54,3 +61,4 @@ CREATE INDEX IF NOT EXISTS idx_products_category ON products(category, active);
 CREATE INDEX IF NOT EXISTS idx_orders_user ON orders(user_id, id);
 CREATE INDEX IF NOT EXISTS idx_order_items_order ON order_items(order_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
+CREATE INDEX IF NOT EXISTS idx_wishlist_product ON wishlist_items(product_id);

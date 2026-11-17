@@ -19,7 +19,7 @@ class ProductRepository:
     def list(self, category: str | None, limit: int, offset: int) -> list[dict[str, Any]]:
         rows = self.connection.execute(
             "SELECT * FROM products WHERE active = 1 "
-            "AND (? IS NULL OR category = ?) ORDER BY id LIMIT ? OFFSET ?",
+            "AND (? IS NULL OR lower(category) = ?) ORDER BY id LIMIT ? OFFSET ?",
             (category, category, limit, offset),
         ).fetchall()
         return [dict(row) for row in rows]
@@ -68,6 +68,42 @@ class CartRepository:
 
     def clear(self, user_id: int) -> None:
         self.connection.execute("DELETE FROM cart_items WHERE user_id = ?", (user_id,))
+
+
+class WishlistRepository:
+    def __init__(self, connection: sqlite3.Connection):
+        self.connection = connection
+
+    def items(self, user_id: int) -> list[dict[str, Any]]:
+        rows = self.connection.execute(
+            "SELECT p.*, p.id AS product_id FROM wishlist_items w "
+            "JOIN products p ON p.id = w.product_id "
+            "WHERE w.user_id = ? AND p.active = 1 ORDER BY p.id",
+            (user_id,),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+    def add(self, user_id: int, product_id: int) -> None:
+        self.connection.execute(
+            "INSERT INTO wishlist_items (user_id, product_id) VALUES (?, ?) "
+            "ON CONFLICT(user_id, product_id) DO NOTHING",
+            (user_id, product_id),
+        )
+
+    def get(self, user_id: int, product_id: int) -> dict[str, Any] | None:
+        row = self.connection.execute(
+            "SELECT p.*, p.id AS product_id FROM wishlist_items w "
+            "JOIN products p ON p.id = w.product_id "
+            "WHERE w.user_id = ? AND w.product_id = ? AND p.active = 1",
+            (user_id, product_id),
+        ).fetchone()
+        return dict(row) if row else None
+
+    def remove(self, user_id: int, product_id: int) -> bool:
+        return self.connection.execute(
+            "DELETE FROM wishlist_items WHERE user_id = ? AND product_id = ?",
+            (user_id, product_id),
+        ).rowcount == 1
 
 
 class OrderRepository:

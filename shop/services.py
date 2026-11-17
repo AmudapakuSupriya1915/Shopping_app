@@ -3,7 +3,10 @@ from typing import Any
 
 from shop.database import Database
 from shop.errors import ConflictError, NotFoundError, ValidationError
-from shop.repositories import CartRepository, OrderRepository, ProductRepository
+from shop.repositories import CartRepository, OrderRepository, ProductRepository, WishlistRepository
+
+
+PRODUCT_CATEGORIES = frozenset({"electronics", "laptop", "phones", "tv"})
 
 
 def text(value: object, field: str, maximum: int = 200) -> str:
@@ -18,12 +21,19 @@ def integer(value: object, field: str, minimum: int = 1, maximum: int = 1_000_00
     return value
 
 
+def product_category(value: object) -> str:
+    category = text(value, "category", 80)
+    if category not in PRODUCT_CATEGORIES:
+        raise ValidationError("category must be one of: electronics, laptop, phones, tv")
+    return category
+
+
 class CatalogService:
     def __init__(self, database: Database):
         self.database = database
 
     def create_product(self, sku: str, name: str, category: str, price_cents: int, stock: int) -> dict[str, Any]:
-        values = (text(sku, "sku", 64), text(name, "name"), text(category, "category", 80),
+        values = (text(sku, "sku", 64), text(name, "name"), product_category(category),
                   integer(price_cents, "price_cents", maximum=100_000_000), integer(stock, "stock", 0))
         try:
             with self.database.transaction() as connection:
@@ -36,7 +46,7 @@ class CatalogService:
         integer(limit, "limit", maximum=100)
         integer(offset, "offset", 0)
         if category is not None:
-            category = text(category, "category", 80)
+            category = product_category(category)
         with self.database.connection() as connection:
             return ProductRepository(connection).list(category, limit, offset)
 
@@ -79,6 +89,31 @@ class CartService:
         with self.database.transaction() as connection:
             if not CartRepository(connection).remove(user_id, product_id):
                 raise NotFoundError("Cart item not found")
+
+
+class WishlistService:
+    def __init__(self, database: Database):
+        self.database = database
+
+    def list_items(self, user_id: int) -> list[dict[str, Any]]:
+        with self.database.connection() as connection:
+            return WishlistRepository(connection).items(user_id)
+
+    def add_item(self, user_id: int, product_id: int) -> dict[str, Any]:
+        with self.database.transaction() as connection:
+            product = ProductRepository(connection).get(product_id)
+            if not product["active"]:
+                raise NotFoundError("Product not found")
+            repository = WishlistRepository(connection)
+            repository.add(user_id, product_id)
+            item = repository.get(user_id, product_id)
+            assert item is not None
+            return item
+
+    def remove_item(self, user_id: int, product_id: int) -> None:
+        with self.database.transaction() as connection:
+            if not WishlistRepository(connection).remove(user_id, product_id):
+                raise NotFoundError("Wishlist item not found")
 
 
 class OrderService:

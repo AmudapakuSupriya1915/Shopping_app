@@ -25,19 +25,23 @@ The frontend and API run on the same Flask server. There is no separate frontend
 
 | Area | Available functionality |
 |---|---|
-| Catalog | Product photos and details, text search, category filters, price/name sorting |
-| Saved items | Browser-local favorites and a Saved view |
+| Catalog | Product photos and details, text search, Electronics/Laptop/Phones/TV filters, price/name sorting |
+| Saved items | Guest favorites saved in this browser; signed-in wishlist persisted to the customer account |
+| Appearance | Responsive light/dark theme toggle, with the selection remembered in this browser |
+| Stock | Per-product availability and quantity controls; browser reminder for out-of-stock products |
 | Accounts | Registration, sign-in, profile, and sign-out |
 | Shopping bag | Add products, change quantities, remove items, and see the subtotal |
 | Checkout | Shipping address, stock checks, and duplicate-order protection |
 | Orders | Order history, item details, and cancellation of placed orders |
 | Administration | API-only product creation, stock adjustment, and order shipment |
-| Persistence | SQLite-backed accounts, sessions, products, carts, and orders |
+| Persistence | SQLite-backed accounts, sessions, products, carts, wishlists, and orders |
 
 ## Stack
 
 - Python 3.11+ with Flask; SQLite through the standard-library `sqlite3` module.
 - Jinja-rendered HTML, CSS, and vanilla JavaScript; locally served Lucide icons and photos.
+- Product photos, including the laptop, phone, and TV catalog images, are stored locally in `shop/static`; the new category photos are sourced from Unsplash.
+- Back-in-stock reminders are stored in the browser and checked while the storefront is open or when it is revisited; no email or push notification service is configured.
 - Google Fonts for DM Sans and Instrument Serif; an internet connection is needed to load these fonts.
 - Layered API, authentication, business services, repositories, and database connection management.
 - File-backed persistence, foreign keys, constraints, indexes, WAL mode, parameterized SQL, and explicit transactions.
@@ -56,7 +60,6 @@ SQLite is included with standard Python installations; no separate database serv
 ## Quick Start
 
 ### 1. Create the Environment and Install Dependencies
-
 ```bash
 python3 -m venv .venv
 .venv/bin/python -m pip install -r requirements.txt
@@ -71,7 +74,11 @@ For an existing checkout with `.venv` already created, run only the dependency i
 .venv/bin/python -m shop seed
 ```
 
-The default database is `instance/shop.db`. Seeding adds five sample products: a keyboard, mouse, headphones, water bottle, and backpack. Repeating the seed command does not overwrite existing products or reset stock.
+The default database is `instance/shop.db`. Seeding adds twelve sample products, three each in the canonical `electronics`, `laptop`, `phones`, and `tv` categories. Prices are integer USD cents. Repeating the seed command does not duplicate products or overwrite their product data or stock.
+
+When seeding an older database, the command also archives the five exact legacy demo products from earlier FORME versions by setting `active = 0`, but only when their original SKU, name, category, price, and stock still match and they are not referenced by a cart, wishlist, or order. It does not delete rows or change prices or stock. Customized or customer-referenced legacy products remain active and untouched. The migration is repeatable and uses the existing database; no reset or manual schema migration is required.
+
+For an existing database, `init-db` (also run automatically by the server) adds the `wishlist_items` table and its index with `CREATE ... IF NOT EXISTS`; it leaves existing rows and table definitions untouched. Then run `seed` to add the catalog and apply the narrowly scoped legacy-sample handling above.
 
 ### 3. Start the Website
 
@@ -100,14 +107,14 @@ The demo prints a customer, cart, placed order, remaining inventory, and cleared
 ## Using the Website
 
 1. Open the homepage and browse the catalog. Search, select a category, or change the sort order to narrow the results.
-2. Open a product for details. Use its heart control to save it; the **Saved** navigation item shows your favorites.
+2. Open a product for details. Use its heart control to save it; the **Saved** navigation item shows your wishlist. Guest favorites stay in this browser until you sign in. On sign-in, they are merged into your account wishlist without duplicates. Product cards show current stock and let you choose a quantity up to the available limit. Out-of-stock products offer **Remind me**; the browser checks for restocks while the storefront is open and on your next visit.
 3. Select the account icon and choose **Create account**. Enter a name, email, and a password containing 12-128 characters. Existing customers can choose **Sign in**.
 4. Add products to your bag. Sign in when prompted, then use **Bag** to review quantities, remove items, and see the subtotal.
 5. Enter a shipping address and select **Place order**. This creates a demo order; no payment is requested or collected.
 6. Open **Orders** to review purchases. Placed orders can be cancelled; shipped orders cannot. Cancellation restores inventory.
 7. Open the account dialog to sign out.
 
-Saved product IDs are stored in browser `localStorage`, not in your account. The access token is stored in `sessionStorage` for that browser tab's session; it also expires on the server after eight hours. Accounts, shopping bags, and orders are stored in SQLite and remain available after signing back in. Clearing browser storage removes locally saved favorites.
+Guest saved product IDs are stored in browser `localStorage` until sign-in. After sign-in, favorites are merged into the account's SQLite wishlist; signed-in changes then synchronize with the server, so the wishlist follows the account across browsers. The access token is stored in `sessionStorage` for that browser tab's session; it also expires on the server after eight hours. Accounts, shopping bags, wishlists, and orders are stored in SQLite and remain available after signing back in. Clearing browser storage removes unsynchronized guest favorites, but does not remove a server-saved wishlist.
 
 The storefront is customer-facing. Signing in as an administrator does not reveal an admin dashboard; use the protected API endpoints for inventory and shipment operations.
 
@@ -123,16 +130,17 @@ The storefront is customer-facing. Signing in as an administrator does not revea
 |   |-- database.py       # Connections, transaction lifecycle, initialization
 |   |-- errors.py         # Domain exceptions and HTTP status mapping
 |   |-- repositories.py   # Parameterized product, cart, and order queries
-|   |-- schema.sql        # Six related tables, constraints, indexes
-|   |-- seed.py           # Repeatable sample catalog creation
-|   |-- services.py       # Catalog, cart, checkout, order state transitions
+|   |-- schema.sql        # Seven related tables, constraints, indexes
+|   |-- seed.py           # Repeatable canonical catalog and safe legacy cleanup
+|   |-- services.py       # Catalog, cart, wishlist, checkout, order state transitions
 |   |-- templates/
 |   |   `-- storefront.html  # Homepage and account, bag, product, order dialogs
 |   `-- static/
 |       |-- storefront.css  # Responsive storefront styling
 |       |-- storefront.js   # UI state and same-origin API requests
 |       |-- lucide.min.js   # Locally served icon library
-|       `-- *.jpg           # Workspace and sample product photos
+|       |-- forme-mark.svg  # Local FORME logo mark
+|       `-- *.jpg           # Workspace and product photos
 |-- tests/
 |   |-- __init__.py
 |   |-- test_api.py
@@ -172,6 +180,7 @@ Routes validate request shape and permissions, services enforce business rules, 
 | `AuthService` | `register`, `login`, `authenticate`, `logout` |
 | `CatalogService` | `create_product`, `list_products`, `get_product`, `adjust_stock` |
 | `CartService` | `get_cart`, `set_item`, `remove_item` |
+| `WishlistService` | `list_items`, `add_item`, `remove_item` |
 | `OrderService` | `checkout`, `get_order`, `list_orders`, `cancel_order`, `ship_order` |
 | Repositories | Product queries, guarded stock reservations, cart upserts, order snapshots |
 
@@ -236,6 +245,9 @@ JSON request bodies require `Content-Type: application/json`. Authenticated requ
 | GET | `/api/auth/me` | Customer/admin | Current profile |
 | GET | `/api/products` | Public | Optional `category`, `limit`, `offset` |
 | GET | `/api/products/<id>` | Public | Product details |
+| GET | `/api/wishlist` | Customer/admin | List the signed-in user's saved products |
+| POST | `/api/wishlist/items/<id>` | Customer/admin | Save a product to the signed-in user's wishlist |
+| DELETE | `/api/wishlist/items/<id>` | Customer/admin | Remove a product from the signed-in user's wishlist |
 | POST | `/api/products` | Admin | `sku`, `name`, `category`, `price_cents`, `stock` |
 | PATCH | `/api/products/<id>/stock` | Admin | Signed integer `delta` |
 | GET | `/api/cart` | Customer/admin | Own cart and current total |
@@ -247,7 +259,7 @@ JSON request bodies require `Content-Type: application/json`. Authenticated requ
 | POST | `/api/orders/<id>/cancel` | Owner | Cancel and restore inventory |
 | POST | `/api/orders/<id>/ship` | Admin | Mark a placed order shipped |
 
-List endpoints return `{"items": [...]}`. Pagination defaults to `limit=20`, `offset=0`; maximum limit is 100. Product categories use exact matching. Order access is ownership-scoped, including for administrators; shipment is a separate admin operation.
+List endpoints return `{"items": [...]}`. Pagination defaults to `limit=20`, `offset=0`; maximum limit is 100. Product categories use exact matching and accept only `electronics`, `laptop`, `phones`, and `tv`. Wishlist routes always use the authenticated user's ID and cannot read or modify another customer's saved items. Order access is ownership-scoped, including for administrators; shipment is a separate admin operation.
 
 API errors use this structure:
 
@@ -292,10 +304,11 @@ TOKEN=$(curl -sS "$BASE_URL/api/auth/login" \
 curl -sS "$BASE_URL/api/products"
 ```
 
-Choose a product ID from the catalog response. A fresh seeded database uses `1` for the keyboard; change `PRODUCT_ID` below if necessary:
+Choose an active product ID from the catalog response. IDs vary between fresh and previously populated databases:
 
 ```bash
-PRODUCT_ID=1
+PRODUCT_ID=$(curl -sS "$BASE_URL/api/products?limit=1" \
+  | .venv/bin/python -c 'import json,sys; print(json.load(sys.stdin)["items"][0]["id"])')
 
 curl -sS -X PUT "$BASE_URL/api/cart/items/$PRODUCT_ID" \
   -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
@@ -320,6 +333,7 @@ Retry checkout with the same key and address to retrieve the same order without 
 | `sessions` | Hashed access token and expiry; references a user |
 | `products` | Unique SKU, name, category, price in cents, stock, and active flag |
 | `cart_items` | One quantity per user/product pair; references users and products |
+| `wishlist_items` | One saved product per user/product pair; references users and products, with a unique pair constraint and product lookup index |
 | `orders` | Owner, status, subtotal, address, timestamp, and per-user idempotency key |
 | `order_items` | Purchased name, unit price, and quantity; references orders and products |
 
@@ -345,9 +359,9 @@ Tests use temporary databases, not `instance/shop.db`:
 
 | Test module | Coverage |
 |---|---|
-| `tests/test_api.py` | Homepage and CSS/JS delivery, JSON API behavior, customer workflow, role/ownership guards, sessions, validation, and SQL injection handling |
+| `tests/test_api.py` | Homepage and CSS/JS delivery, JSON API behavior, customer workflow, wishlist auth/ownership, role guards, sessions, validation, and SQL injection handling |
 | `tests/test_services.py` | Atomic rollback, concurrent buyers, idempotency, historical prices, cancellation, and stock validation |
-| `tests/test_cli.py` | Repeatable seeding, persistent database integrity, initialization, CLI commands, and isolated demo |
+| `tests/test_cli.py` | Canonical catalog seeding, legacy sample preservation, persistent database integrity, wishlist-table initialization, CLI commands, and isolated demo |
 
 Run one module with `.venv/bin/python -m unittest tests.test_api -v`. GitHub Actions runs the unit/integration suite on Python 3.11, 3.12, 3.13, and 3.14.
 
@@ -366,7 +380,7 @@ The automated suite verifies HTML and asset delivery but does not execute browse
 | Sign-in fails or token expires | Check the email/password or sign in again. There are no default credentials. |
 | Registration returns `409` | That email is already registered; sign in or use a different local test email. |
 | Checkout reports insufficient stock | Reduce the quantity or have an admin replenish stock. A cart does not reserve inventory. |
-| Saved items differ between browsers | Favorites are browser-local, not account-synchronized. |
+| Guest saved items differ between browsers | Sign in to merge them into the account wishlist; only unsynchronized guest favorites are browser-local. |
 | Data appears to be missing | Check `SHOP_DATABASE`, any `--database` override, and the working directory. |
 | Database is locked | Finish other writes or close external database editing transactions. The app waits up to ten seconds for a lock. |
 | Web fonts do not load | Check internet access to Google Fonts; the application uses fallback fonts when unavailable. |

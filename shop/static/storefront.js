@@ -5,9 +5,13 @@ const money = (cents) => new Intl.NumberFormat("en-US", { style: "currency", cur
 const escapeHTML = (value) => String(value).replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[character]));
 const icon = (name) => `<i data-lucide="${name}" aria-hidden="true"></i>`;
 const icons = () => globalThis.lucide?.createIcons();
+const categoryLabels = { electronics: "Electronics", laptop: "Laptop", phones: "Phones", tv: "TV" };
 const state = {
   products: [], user: null, cart: { items: [], total_cents: 0 }, category: "", savedOnly: false,
   favorites: new Set(), token: null, authMode: "login", afterLogin: null, busy: false,
+  theme: document.documentElement.dataset.theme === "dark" ? "dark" : "light",
+  productQuantities: new Map(), restockReminders: new Set(), restockCheckRunning: false,
+  wishlistPending: new Set(),
   checkoutAttempt: null, toastTimer: null, ordersOffset: 0, orderPages: [],
 };
 
@@ -15,9 +19,23 @@ try {
   state.token = sessionStorage.getItem("forme-token");
   const saved = JSON.parse(localStorage.getItem("forme-saved") || "[]");
   if (Array.isArray(saved)) state.favorites = new Set(saved.filter(Number.isInteger));
+  const reminders = JSON.parse(localStorage.getItem("forme-restock-reminders") || "[]");
+  if (Array.isArray(reminders)) state.restockReminders = new Set(reminders.filter(Number.isInteger));
 } catch {}
 
 const productMedia = {
+  "FORME-LP-001": { image: "laptop-1.jpg", description: "A balanced everyday laptop for focused work, thoughtful projects, and everything that follows." },
+  "FORME-LP-002": { image: "laptop-2.jpg", description: "A spacious, capable laptop for creative work, big plans, and long days at your desk." },
+  "FORME-LP-003": { image: "laptop-3.jpg", description: "A dependable laptop for the daily rhythm of work, study, and staying connected." },
+  "FORME-PH-001": { image: "phone-1.jpg", description: "A capable everyday phone for messages, photos, and the small moments worth keeping." },
+  "FORME-PH-002": { image: "phone-2.jpg", description: "A premium smartphone with a vivid display and room for your everyday essentials." },
+  "FORME-PH-003": { image: "phone-3.jpg", description: "A compact, easy-to-carry smartphone made to keep the day moving." },
+  "FORME-TV-001": { image: "tv-1.jpg", description: "Bring your favorite films and shows into a calm, considered home setup." },
+  "FORME-TV-002": { image: "tv-2.jpg", description: "A generous screen for movie nights, live events, and time together." },
+  "FORME-TV-003": { image: "tv-3.jpg", description: "A cinematic display for a more immersive way to watch at home." },
+  "FORME-EL-001": { image: "mouse.jpg", description: "A clean, considered addition to your desk. Keep your everyday setup simple, comfortable, and ready to go." },
+  "FORME-EL-002": { image: "headphones.jpg", description: "Make a little room for your own rhythm with an everyday audio companion." },
+  "FORME-EL-003": { image: "keyboard.jpg", description: "A tactile companion for focused mornings and ideas that run late." },
   "ELEC-KB-001": { image: "keyboard.jpg", description: "A tactile companion for focused mornings and ideas that run late. A little intention for your everyday workspace." },
   "ELEC-MS-001": { image: "mouse.jpg", description: "A clean, considered addition to your desk. Keep your everyday setup simple, comfortable, and ready to go." },
   "ELEC-HP-001": { image: "headphones.jpg", description: "Make a little room for your own rhythm. An everyday companion for your commute, your workspace, and your downtime." },
@@ -26,19 +44,57 @@ const productMedia = {
 };
 const media = (product) => productMedia[product.sku] || { image: "workspace.jpg", description: "A considered addition to your everyday rotation. Selected for the little moments that make up your day." };
 const productById = (id) => state.products.find((product) => product.id === Number(id));
+const cartQuantity = (productId) => state.cart.items.find((item) => item.product_id === Number(productId))?.quantity || 0;
+
+function maxAddQuantity(product) {
+  const inCart = state.user ? cartQuantity(product.id) : 0;
+  return Math.max(0, Math.min(1000 - inCart, product.stock - inCart));
+}
+
+function selectedQuantity(product) {
+  const maximum = Math.max(1, maxAddQuantity(product));
+  const quantity = Math.min(maximum, Math.max(1, state.productQuantities.get(product.id) || 1));
+  state.productQuantities.set(product.id, quantity);
+  return quantity;
+}
+
+function stockStatus(product) {
+  if (product.stock <= 0) return { text: "Out of stock", className: "stock-empty" };
+  if (maxAddQuantity(product) <= 0) return { text: "Available units already in your bag", className: "stock-in-bag" };
+  if (product.stock <= 5) return { text: `Only ${product.stock} left`, className: "stock-low" };
+  return { text: `${product.stock} in stock`, className: "stock-available" };
+}
+
+function quantityControl(product) {
+  const maximum = maxAddQuantity(product);
+  const quantity = selectedQuantity(product);
+  const unavailable = maximum === 0 || state.busy;
+  return `<div class="product-purchase-row"><div class="stepper product-stepper" role="group" aria-label="Quantity for ${escapeHTML(product.name)}"><button type="button" data-action="product-quantity" data-id="${product.id}" data-delta="-1" aria-label="Decrease ${escapeHTML(product.name)} quantity" ${quantity <= 1 || unavailable ? "disabled" : ""}>${icon("minus")}</button><output class="product-quantity-value" aria-label="Selected quantity" aria-live="polite">${quantity}</output><button type="button" data-action="product-quantity" data-id="${product.id}" data-delta="1" aria-label="Increase ${escapeHTML(product.name)} quantity" ${quantity >= maximum || unavailable ? "disabled" : ""}>${icon("plus")}</button></div><button class="add-button" data-action="add" data-id="${product.id}" aria-label="Add ${quantity} ${escapeHTML(product.name)} to bag" ${unavailable ? "disabled" : ""}>${icon("shopping-bag")} <span>Add to bag</span></button></div>`;
+}
+
+function purchaseControl(product) {
+  if (product.stock > 0) return quantityControl(product);
+  const reminded = state.restockReminders.has(product.id);
+  return `<button class="remind-button ${reminded ? "reminder-set" : ""}" data-action="restock-reminder" data-id="${product.id}" aria-pressed="${reminded}" aria-label="${reminded ? "Remove" : "Set"} back-in-stock reminder for ${escapeHTML(product.name)}">${icon(reminded ? "bell-ring" : "bell-plus")}<span>${reminded ? "Reminder set" : "Remind me"}</span></button>`;
+}
 
 function saveToken(token) {
   state.token = token;
   try { token ? sessionStorage.setItem("forme-token", token) : sessionStorage.removeItem("forme-token"); } catch {}
 }
 
-function resetAccount() {
+function resetAccount({ preserveGuestFavorites = false } = {}) {
   saveToken(null);
   state.user = null;
   state.cart = { items: [], total_cents: 0 };
   state.checkoutAttempt = null;
   state.orderPages = [];
+  if (!preserveGuestFavorites) {
+    state.favorites.clear();
+    try { localStorage.removeItem("forme-saved"); } catch {}
+  }
   updateHeader();
+  renderProducts();
   renderBag();
 }
 
@@ -53,7 +109,7 @@ async function api(path, { method = "GET", data, headers = {}, authenticate = tr
   const result = response.status === 204 ? null : await response.json();
   if (!response.ok) {
     if (response.status === 401 && authenticate && state.token) {
-      resetAccount();
+      resetAccount({ preserveGuestFavorites: true });
       if ($("#bag-dialog").open) $("#bag-dialog").close();
       if ($("#orders-dialog").open) $("#orders-dialog").close();
     }
@@ -79,8 +135,27 @@ function updateHeader() {
   $("#bag-count").textContent = count;
   $('[data-action="bag"]').setAttribute("aria-label", `Open shopping bag, ${count} items`);
   $("#saved-count").textContent = state.favorites.size ? `(${state.favorites.size})` : "";
-  $("#account-button").setAttribute("aria-label", state.user ? `Account for ${state.user.name}` : "Sign in");
-  $("#account-button").title = state.user ? state.user.name : "Sign in";
+  $("#header-account-name").textContent = state.user ? state.user.name : "";
+  $("#account-button").setAttribute("aria-label", state.user ? `Open account for ${state.user.name}` : "Sign in");
+  $("#account-button").title = state.user ? `Account for ${state.user.name}` : "Sign in";
+}
+
+function setTheme(theme, persist = true) {
+  state.theme = theme === "dark" ? "dark" : "light";
+  document.documentElement.dataset.theme = state.theme;
+  const dark = state.theme === "dark";
+  const button = $("#theme-button");
+  if (button) {
+    button.innerHTML = icon(dark ? "sun" : "moon");
+    button.setAttribute("aria-label", `Switch to ${dark ? "light" : "dark"} theme`);
+    button.setAttribute("aria-pressed", String(dark));
+    button.title = `Switch to ${dark ? "light" : "dark"} theme`;
+  }
+  document.querySelector('meta[name="theme-color"]').content = dark ? "#171d1a" : "#17664f";
+  if (persist) {
+    try { localStorage.setItem("forme-theme", state.theme); } catch {}
+  }
+  icons();
 }
 
 function emptyState(symbol, title, description, button = "") {
@@ -88,14 +163,14 @@ function emptyState(symbol, title, description, button = "") {
 }
 
 function renderCategories() {
-  const categories = [...new Set(state.products.map((product) => product.category))];
-  $("#category-tabs").innerHTML = ["", ...categories].map((category) => `<button class="category-tab ${state.category === category ? "selected" : ""}" data-category="${escapeHTML(category)}" aria-pressed="${state.category === category}">${escapeHTML(category || "All essentials")}</button>`).join("");
+  const categories = ["", "electronics", "laptop", "phones", "tv"];
+  $("#category-tabs").innerHTML = categories.map((category) => `<button class="category-tab ${state.category === category ? "selected" : ""}" data-category="${escapeHTML(category)}" aria-pressed="${state.category === category}">${escapeHTML(category ? categoryLabels[category] : "All essentials")}</button>`).join("");
 }
 
 function renderProducts() {
   const query = $("#search").value.trim().toLowerCase();
   let products = state.products.filter((product) =>
-    (!state.category || product.category === state.category) &&
+    (!state.category || product.category.toLowerCase() === state.category) &&
     (!state.savedOnly || state.favorites.has(product.id)) &&
     `${product.name} ${product.category} ${product.sku}`.toLowerCase().includes(query));
   const sort = $("#sort").value;
@@ -106,18 +181,20 @@ function renderProducts() {
   $("#collection-count").textContent = `${products.length} ${products.length === 1 ? "essential" : "essentials"}`;
   $("#product-grid").setAttribute("aria-busy", "false");
   if (!products.length) {
-    $("#product-grid").innerHTML = emptyState(state.savedOnly ? "heart" : "search", state.savedOnly ? "A space for your favorites." : "Nothing here just yet.", state.savedOnly ? "Save the things you love. They'll be waiting right here." : "Try another search or category.", '<button class="secondary-button" data-action="reset-filters">Browse all essentials</button>');
+    const savedTitle = state.user ? "Nothing saved yet." : "A space for your favorites.";
+    const savedDescription = state.user ? "Use a product's heart to add it to your wishlist." : "Saved here on this device until you sign in.";
+    $("#product-grid").innerHTML = emptyState(state.savedOnly ? "heart" : "search", state.savedOnly ? savedTitle : "Nothing here just yet.", state.savedOnly ? savedDescription : "Try another search or category.", '<button class="secondary-button" data-action="reset-filters">Browse all essentials</button>');
     icons();
     return;
   }
   $("#product-grid").innerHTML = products.map((product) => {
     const saved = state.favorites.has(product.id);
     return `<article class="product-card">
-      <div class="product-visual"><button class="product-open" data-action="product" data-id="${product.id}" aria-label="View ${escapeHTML(product.name)}"><img class="product-image" src="/static/${media(product).image}" alt="${escapeHTML(product.name)}" loading="lazy" width="500" height="450"></button>
+      <div class="product-visual"><button class="product-open" data-action="product" data-id="${product.id}" aria-label="View ${escapeHTML(product.name)}"><img class="product-image" src="/static/${media(product).image}" data-fallback="/static/workspace.jpg" alt="${escapeHTML(product.name)}" loading="lazy" width="500" height="450"></button>
       ${product.stock === 0 ? '<span class="product-tag">Out of stock</span>' : product.stock <= 5 ? '<span class="product-tag">Last few</span>' : product.sku === "ELEC-KB-001" ? '<span class="product-tag">The desk edit</span>' : ""}
-      <button class="icon-button save-button ${saved ? "saved" : ""}" data-action="favorite" data-id="${product.id}" aria-label="${saved ? "Unsave" : "Save"} ${escapeHTML(product.name)}" aria-pressed="${saved}" title="${saved ? "Remove from saved" : "Save for later"}">${icon("heart")}</button></div>
-      <p class="product-category">${escapeHTML(product.category)}</p><h3><button class="product-title" data-action="product" data-id="${product.id}">${escapeHTML(product.name)}</button></h3>
-      <div class="product-bottom"><span class="price">${money(product.price_cents)}</span><button class="add-button" data-action="add" data-id="${product.id}" ${!product.stock || state.busy ? "disabled" : ""}>${icon("plus")} ${product.stock ? "Add to bag" : "Sold out"}</button></div></article>`;
+      <button class="icon-button save-button ${saved ? "saved" : ""}" data-action="favorite" data-id="${product.id}" aria-label="${saved ? "Remove" : "Save"} ${escapeHTML(product.name)}" aria-pressed="${saved}" title="${saved ? (state.user ? "Remove from wishlist" : "Remove from saved") : "Save for later"}" ${state.wishlistPending.has(product.id) ? "disabled" : ""}>${icon("heart")}</button></div>
+      <p class="product-category">${escapeHTML(categoryLabels[product.category.toLowerCase()] || product.category)}</p><h3><button class="product-title" data-action="product" data-id="${product.id}">${escapeHTML(product.name)}</button></h3>
+      <div class="product-price-row"><span class="price">${money(product.price_cents)}</span></div><p class="product-stock ${stockStatus(product).className}"><span class="stock-dot" aria-hidden="true"></span>${escapeHTML(stockStatus(product).text)}</p>${purchaseControl(product)}</article>`;
   }).join("");
   icons();
 }
@@ -134,6 +211,7 @@ async function loadProducts() {
   state.products = products;
   renderCategories();
   renderProducts();
+  notifyRestockedFromCatalog();
 }
 
 function setView(savedOnly) {
@@ -147,20 +225,122 @@ function setView(savedOnly) {
   renderProducts();
 }
 
-function toggleFavorite(id) {
-  id = Number(id);
-  if (state.favorites.has(id)) state.favorites.delete(id);
-  else state.favorites.add(id);
+function saveGuestFavorites() {
   try { localStorage.setItem("forme-saved", JSON.stringify([...state.favorites])); } catch {}
+}
+
+function saveRestockReminders() {
+  try { localStorage.setItem("forme-restock-reminders", JSON.stringify([...state.restockReminders])); } catch {}
+}
+
+function toggleRestockReminder(id) {
+  const product = productById(id);
+  if (!product) return;
+  if (product.stock > 0) {
+    toast(`${product.name} is already in stock.`);
+    return;
+  }
+  if (state.restockReminders.has(product.id)) {
+    state.restockReminders.delete(product.id);
+    toast(`Reminder removed for ${product.name}.`);
+  } else {
+    state.restockReminders.add(product.id);
+    toast(`We'll remind you in this browser when ${product.name} is back in stock.`);
+  }
+  saveRestockReminders();
+  renderProducts();
+  if ($("#product-dialog").open) renderProductDetail(product);
+  const scope = $("#product-dialog").open ? $("#product-detail") : $("#product-grid");
+  scope.querySelector(`[data-action="restock-reminder"][data-id="${product.id}"]`)?.focus();
+}
+
+function notifyRestockedFromCatalog() {
+  const available = [...state.restockReminders]
+    .map(productById)
+    .filter((product) => product && product.stock > 0);
+  if (!available.length) return;
+  available.forEach((product) => state.restockReminders.delete(product.id));
+  saveRestockReminders();
+  renderProducts();
+  toast(`${available[0].name} is back in stock${available.length > 1 ? `, with ${available.length - 1} more reminder${available.length > 2 ? "s" : ""}` : ""}.`);
+}
+
+async function checkRestockReminders() {
+  if (state.restockCheckRunning || !state.restockReminders.size) return;
+  state.restockCheckRunning = true;
+  const available = [];
+  try {
+    for (const id of state.restockReminders) {
+      try {
+        const latest = await api(`/products/${id}`, { authenticate: false });
+        const product = productById(id);
+        if (product) product.stock = latest.stock;
+        if (latest.stock > 0) {
+          state.restockReminders.delete(id);
+          available.push(latest);
+        }
+      } catch {}
+    }
+  } finally {
+    state.restockCheckRunning = false;
+  }
+  if (available.length) {
+    saveRestockReminders();
+    renderProducts();
+    toast(`${available[0].name} is back in stock${available.length > 1 ? `, with ${available.length - 1} more reminder${available.length > 2 ? "s" : ""}` : ""}.`);
+  }
+}
+
+async function syncWishlist() {
+  const guestIds = [...state.favorites];
+  const current = await api("/wishlist");
+  const savedIds = new Set(current.items.map((item) => item.product_id));
+  let skipped = 0;
+  for (const id of guestIds) {
+    if (!state.products.some((product) => product.id === id)) { skipped += 1; continue; }
+    if (!savedIds.has(id)) await api(`/wishlist/items/${id}`, { method: "POST" });
+  }
+  const result = await api("/wishlist");
+  state.favorites = new Set(result.items.map((item) => item.product_id));
+  try { localStorage.removeItem("forme-saved"); } catch {}
   renderProducts();
   updateHeader();
+  if (skipped) toast(`${skipped} unavailable saved ${skipped === 1 ? "item was" : "items were"} not transferred.`);
+}
+
+async function toggleFavorite(id) {
+  id = Number(id);
+  if (!Number.isInteger(id) || state.wishlistPending.has(id)) return;
+  const wasSaved = state.favorites.has(id);
+  state.wishlistPending.add(id);
+  renderProducts();
+  try {
+    if (state.user) {
+      await api(`/wishlist/items/${id}`, { method: wasSaved ? "DELETE" : "POST" });
+    }
+    if (wasSaved) state.favorites.delete(id);
+    else state.favorites.add(id);
+    if (!state.user) saveGuestFavorites();
+    renderProducts();
+    updateHeader();
+  } catch (error) {
+    toast(error.message);
+  } finally {
+    state.wishlistPending.delete(id);
+    renderProducts();
+  }
+}
+
+function renderProductDetail(product) {
+  const status = stockStatus(product);
+  $("#product-detail").innerHTML = `<img class="detail-image" src="/static/${media(product).image}" data-fallback="/static/workspace.jpg" alt="${escapeHTML(product.name)}"><div class="detail-copy"><p class="eyebrow">${escapeHTML((categoryLabels[product.category.toLowerCase()] || product.category).toUpperCase())}</p><h2 id="product-title">${escapeHTML(product.name)}</h2><p class="price">${money(product.price_cents)}</p><p class="stock-note ${status.className}"><span class="stock-dot" aria-hidden="true"></span>${escapeHTML(status.text)}</p><p class="detail-description">${escapeHTML(media(product).description)}</p><p class="detail-quantity-label">Quantity</p>${purchaseControl(product)}<p class="detail-sku">SKU / ${escapeHTML(product.sku)}</p></div>`;
+  icons();
 }
 
 function showProduct(id) {
   const product = productById(id);
   if (!product) return;
-  $("#product-detail").innerHTML = `<img class="detail-image" src="/static/${media(product).image}" alt="${escapeHTML(product.name)}"><div class="detail-copy"><p class="eyebrow">${escapeHTML(product.category.toUpperCase())}</p><h2 id="product-title">${escapeHTML(product.name)}</h2><p class="price">${money(product.price_cents)}</p><p class="stock-note"><span class="live-dot"></span>${product.stock ? `${product.stock} in stock` : "Currently out of stock"}</p><p class="detail-description">${escapeHTML(media(product).description)}</p><button class="primary-button full-width" data-action="add" data-id="${product.id}" ${!product.stock || state.busy ? "disabled" : ""}>${product.stock ? "Add to bag" : "Sold out"} ${icon("shopping-bag")}</button><p class="detail-sku">SKU / ${escapeHTML(product.sku)}</p></div>`;
-  icons();
+  renderProductDetail(product);
   showDialog("product-dialog");
 }
 
@@ -208,10 +388,13 @@ async function submitAuth(event) {
     saveToken(session.access_token);
     state.user = await api("/auth/me");
     state.cart = await api("/cart");
+    let wishlistError = null;
+    try { await syncWishlist(); } catch (error) { wishlistError = error; }
     updateHeader();
     $("#auth-dialog").close();
     $("#auth-form").reset();
     toast(`Welcome, ${state.user.name.split(" ")[0]}.`);
+    if (wishlistError) toast(`Your wishlist could not be fully synchronized: ${wishlistError.message}`);
     const callback = state.afterLogin;
     state.afterLogin = null;
     if (callback) await callback();
@@ -224,7 +407,23 @@ async function submitAuth(event) {
 async function refreshCart() {
   state.cart = await api("/cart");
   updateHeader();
+  renderProducts();
   renderBag();
+}
+
+function adjustProductQuantity(id, delta) {
+  const product = productById(id);
+  if (!product || state.busy) return;
+  const maximum = maxAddQuantity(product);
+  const quantity = selectedQuantity(product);
+  state.productQuantities.set(product.id, Math.max(1, Math.min(maximum || 1, quantity + delta)));
+  renderProducts();
+  if ($("#product-dialog").open) renderProductDetail(product);
+  const scope = $("#product-dialog").open ? $("#product-detail") : $("#product-grid");
+  let control = scope.querySelector(`[data-action="product-quantity"][data-id="${product.id}"][data-delta="${delta}"]`);
+  if (!control || control.disabled) control = scope.querySelector(`[data-action="product-quantity"][data-id="${product.id}"][data-delta="${-delta}"]`);
+  if (!control || control.disabled) control = scope.querySelector(`[data-action="add"][data-id="${product.id}"]`);
+  control?.focus();
 }
 
 async function changeCart(id, quantity) {
@@ -247,12 +446,21 @@ async function changeCart(id, quantity) {
 }
 
 async function addToBag(id) {
+  const product = productById(id);
+  if (!product) return;
+  const quantity = selectedQuantity(product);
   requireAccount(async () => {
     try {
-      const current = state.cart.items.find((item) => item.product_id === Number(id));
-      await changeCart(Number(id), (current?.quantity || 0) + 1);
+      const currentQuantity = cartQuantity(id);
+      const remaining = maxAddQuantity(product);
+      if (quantity > remaining) {
+        toast(remaining ? `Only ${remaining} more can be added to your bag.` : "All available units are already in your bag.");
+        renderProducts();
+        return;
+      }
+      await changeCart(Number(id), currentQuantity + quantity);
       if ($("#product-dialog").open) $("#product-dialog").close();
-      toast("A good choice. Added to your bag.");
+      toast(`Added ${quantity} x ${product.name} to your bag.`);
     } catch (error) { toast(error.message); }
   });
 }
@@ -264,7 +472,7 @@ function renderBag() {
   if (!items.length) {
     $("#bag-items").innerHTML = emptyState("shopping-bag", "Room for something good.", "Your everyday essentials are waiting to be discovered.", '<button class="primary-button" data-action="continue-shopping">Explore the collection</button>');
   } else {
-    $("#bag-items").innerHTML = items.map((item) => `<article class="bag-item"><img class="bag-item-image" src="/static/${media(item).image}" alt="${escapeHTML(item.name)}" width="83" height="90"><div class="bag-item-info"><h3>${escapeHTML(item.name)}</h3><p class="price">${money(item.price_cents * item.quantity)}</p><div class="bag-item-controls"><div class="stepper" aria-label="Quantity for ${escapeHTML(item.name)}"><button data-action="quantity" data-id="${item.product_id}" data-quantity="${item.quantity - 1}" aria-label="Decrease ${escapeHTML(item.name)} quantity" title="Decrease quantity" ${state.busy ? "disabled" : ""}>${icon("minus")}</button><span>${item.quantity}</span><button data-action="quantity" data-id="${item.product_id}" data-quantity="${item.quantity + 1}" aria-label="Increase ${escapeHTML(item.name)} quantity" title="Increase quantity" ${state.busy || item.quantity >= item.stock || item.quantity >= 1000 ? "disabled" : ""}>${icon("plus")}</button></div><button class="remove-button" data-action="remove" data-id="${item.product_id}" ${state.busy ? "disabled" : ""}>Remove</button></div></div></article>`).join("");
+    $("#bag-items").innerHTML = items.map((item) => `<article class="bag-item"><img class="bag-item-image" src="/static/${media(item).image}" data-fallback="/static/workspace.jpg" alt="${escapeHTML(item.name)}" width="83" height="90"><div class="bag-item-info"><h3>${escapeHTML(item.name)}</h3><p class="price">${money(item.price_cents * item.quantity)}</p><div class="bag-item-controls"><div class="stepper" aria-label="Quantity for ${escapeHTML(item.name)}"><button data-action="quantity" data-id="${item.product_id}" data-quantity="${item.quantity - 1}" aria-label="Decrease ${escapeHTML(item.name)} quantity" title="Decrease quantity" ${state.busy ? "disabled" : ""}>${icon("minus")}</button><span>${item.quantity}</span><button data-action="quantity" data-id="${item.product_id}" data-quantity="${item.quantity + 1}" aria-label="Increase ${escapeHTML(item.name)} quantity" title="Increase quantity" ${state.busy || item.quantity >= item.stock || item.quantity >= 1000 ? "disabled" : ""}>${icon("plus")}</button></div><button class="remove-button" data-action="remove" data-id="${item.product_id}" ${state.busy ? "disabled" : ""}>Remove</button></div></div></article>`).join("");
   }
   $("#bag-total").textContent = money(state.cart.total_cents);
   icons();
@@ -357,16 +565,19 @@ document.addEventListener("click", async (event) => {
   const { action, id } = button.dataset;
   try {
     if (action === "shop" || action === "saved") { setView(action === "saved"); $("#catalog").scrollIntoView({ behavior: "smooth" }); }
+    if (action === "theme") { setTheme(state.theme === "dark" ? "light" : "dark"); return; }
     if (action === "explore") { setView(false); $("#catalog").scrollIntoView({ behavior: "smooth" }); }
     if (action === "reset-filters") { state.category = ""; $("#search").value = ""; setView(false); renderCategories(); }
-    if (action === "favorite") toggleFavorite(id);
+    if (action === "favorite") await toggleFavorite(id);
     if (action === "product") showProduct(id);
     if (action === "add") await addToBag(id);
+    if (action === "product-quantity") adjustProductQuantity(id, Number(button.dataset.delta));
+    if (action === "restock-reminder") toggleRestockReminder(id);
     if (action === "bag") requireAccount(openBag);
     if (action === "orders" || action === "account-orders") { $("#account-dialog").close(); requireAccount(openOrders); }
     if (action === "account") {
       if (state.user) {
-        $("#account-title").textContent = `Hello, ${state.user.name.split(" ")[0]}.`;
+        $("#account-title").textContent = `Hello, ${state.user.name}.`;
         $("#account-email").textContent = state.user.email;
         showDialog("account-dialog");
       } else requireAccount(() => {});
@@ -407,7 +618,11 @@ document.querySelectorAll("dialog").forEach((dialog) => {
 });
 
 async function initialize() {
+  setTheme(state.theme, false);
   icons();
+  window.setInterval(() => {
+    if (document.visibilityState === "visible") checkRestockReminders();
+  }, 60000);
   updateHeader();
   try { await loadProducts(); }
   catch (error) {
@@ -417,9 +632,20 @@ async function initialize() {
     icons();
   }
   if (state.token) {
-    try { state.user = await api("/auth/me"); await refreshCart(); }
-    catch (error) { resetAccount(); toast(error.message); }
+    try {
+      state.user = await api("/auth/me");
+      await refreshCart();
+      try { await syncWishlist(); } catch (error) { toast(`Your wishlist could not be synchronized: ${error.message}`); }
+    } catch (error) { resetAccount({ preserveGuestFavorites: true }); toast(error.message); }
   }
 }
+
+document.addEventListener("error", (event) => {
+  const image = event.target;
+  if (image instanceof HTMLImageElement && image.dataset.fallback && !image.dataset.fallbackApplied) {
+    image.dataset.fallbackApplied = "true";
+    image.src = image.dataset.fallback;
+  }
+}, true);
 
 initialize();

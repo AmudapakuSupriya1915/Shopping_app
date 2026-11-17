@@ -9,7 +9,7 @@ from werkzeug.exceptions import HTTPException
 from shop.auth import AuthService
 from shop.database import Database
 from shop.errors import AuthenticationError, ForbiddenError, ShopError, ValidationError
-from shop.services import CartService, CatalogService, OrderService
+from shop.services import CartService, CatalogService, OrderService, WishlistService
 
 
 def create_app(database_path: str | Path | None = None) -> Flask:
@@ -21,6 +21,7 @@ def create_app(database_path: str | Path | None = None) -> Flask:
     auth = AuthService(database)
     catalog = CatalogService(database)
     carts = CartService(database)
+    wishlist = WishlistService(database)
     orders = OrderService(database)
 
     def authenticated(*, admin: bool = False):
@@ -146,6 +147,22 @@ def create_app(database_path: str | Path | None = None) -> Flask:
     @authenticated()
     def remove_cart_item(product_id):
         carts.remove_item(g.user["id"], product_id)
+        return "", 204
+
+    @app.get("/api/wishlist")
+    @authenticated()
+    def get_wishlist():
+        return {"items": wishlist.list_items(g.user["id"])}
+
+    @app.post("/api/wishlist/items/<int:product_id>")
+    @authenticated()
+    def add_wishlist_item(product_id):
+        return wishlist.add_item(g.user["id"], product_id)
+
+    @app.delete("/api/wishlist/items/<int:product_id>")
+    @authenticated()
+    def remove_wishlist_item(product_id):
+        wishlist.remove_item(g.user["id"], product_id)
         return "", 204
 
     @app.post("/api/orders")

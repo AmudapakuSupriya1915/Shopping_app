@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#17664f">
+  <meta name="description" content="Considered essentials for work, home, and everywhere in between.">
+  <title>FORME | Everyday, considered.</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;450;500;550;600;650;700&family=Instrument+Serif&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='storefront.css') }}">
+  <script defer src="{{ url_for('static', filename='lucide.min.js') }}"></script>
+  <script defer src="{{ url_for('static', filename='storefront.js') }}"></script>
+</head>
+<body>
+  <a class="skip-link" href="#catalog">Skip to products</a>
+  <div class="announcement"><span>A little less ordinary. A little more everyday.</span><span class="announcement-note">The considered collection <i data-lucide="asterisk"></i></span></div>
+  <header class="site-header">
+    <a class="brand" href="/" aria-label="FORME home">forme<span class="brand-mark">.</span></a>
+    <nav class="main-nav" aria-label="Main navigation">
+      <button class="nav-link active" data-action="shop" aria-current="page">Shop</button>
+      <button class="nav-link" data-action="saved">Saved <span id="saved-count"></span></button>
+      <button class="nav-link" data-action="orders">Orders</button>
+    </nav>
+    <label class="search-field"><i data-lucide="search"></i><input id="search" type="search" placeholder="Find your everyday essential" aria-label="Search products" autocomplete="off"><span class="search-hint">Search</span></label>
+    <div class="header-actions">
+      <button class="icon-button" id="account-button" data-action="account" aria-label="Sign in" title="Your account"><i data-lucide="user-round"></i></button>
+      <button class="bag-button" data-action="bag" aria-label="Open shopping bag" title="Shopping bag"><i data-lucide="shopping-bag"></i><span class="bag-label">Bag</span><span class="count" id="bag-count">0</span></button>
+    </div>
+  </header>
+
+  <main id="storefront">
+    <section class="feature" aria-labelledby="collection-title">
+      <img class="feature-image" src="{{ url_for('static', filename='workspace.jpg') }}" alt="A considered workspace with everyday electronics on a desk" fetchpriority="high">
+      <div class="feature-overlay"></div>
+      <div class="feature-content">
+        <p class="eyebrow"><span class="tiny-line"></span> THE EVERYDAY EDIT / 01</p>
+        <h1 id="collection-title">Everyday essentials.<br><em>Exceptionally chosen.</em></h1>
+        <p>For your desk. For your day. For wherever life goes.</p>
+        <button class="primary-button" data-action="explore">Explore the collection <i data-lucide="arrow-up-right"></i></button>
+      </div>
+      <span class="feature-caption"><span class="live-dot"></span> SMALL DETAILS. BETTER DAYS.</span>
+    </section>
+
+    <section class="catalog-section" id="catalog" aria-labelledby="catalog-title">
+      <div class="section-heading"><div><p class="eyebrow">GOOD THINGS, WELL CHOSEN</p><h2 id="catalog-title">Find your next favorite<span>.</span></h2></div><p class="collection-count" id="collection-count" aria-live="polite">Loading collection...</p></div>
+      <div class="catalog-toolbar">
+        <div class="category-tabs" id="category-tabs" role="group" aria-label="Product category"><button class="category-tab selected" data-category="" aria-pressed="true">All essentials</button></div>
+        <label class="sort-control"><i data-lucide="arrow-down-wide-narrow"></i><span class="sort-label">Sort by:</span><select id="sort" aria-label="Sort products"><option value="featured">Featured</option><option value="price-low">Price: low to high</option><option value="price-high">Price: high to low</option><option value="name">Name: A to Z</option></select></label>
+      </div>
+      <div class="product-grid" id="product-grid" aria-live="polite" aria-busy="true"><div class="empty-state"><span class="loader"></span><p>Gathering the good things...</p></div></div>
+      <div class="collection-end"><span></span><i data-lucide="asterisk"></i><p>A few good things go a long way.</p><span></span></div>
+    </section>
+    <section class="values-band" aria-label="Our collection"><div><i data-lucide="scan-eye"></i><p><strong>A considered collection</strong><span>Less noise. More of what matters.</span></p></div><div><i data-lucide="package-check"></i><p><strong>The details make the difference</strong><span>Everyday objects, thoughtfully chosen.</span></p></div><div><i data-lucide="leaf"></i><p><strong>Made for your daily rotation</strong><span>At home, at work, on the move.</span></p></div></section>
+  </main>
+
+  <footer class="site-footer"><div><a class="brand" href="/">forme<span class="brand-mark">.</span></a><span>Everyday, considered.</span></div><p>FORME &copy; {{ 2026 }} <span>Independent by design.</span></p><button class="text-button" data-action="top">Back to top <i data-lucide="arrow-up"></i></button></footer>
+
+  <dialog id="auth-dialog" class="modal auth-modal" aria-labelledby="auth-title">
+    <div class="modal-top"><span class="brand small-brand">forme<span class="brand-mark">.</span></span><button class="icon-button" data-close="auth-dialog" aria-label="Close account dialog" title="Close"><i data-lucide="x"></i></button></div>
+    <div class="auth-tabs" role="group" aria-label="Account mode"><button class="selected" data-auth-mode="login" aria-pressed="true">Sign in</button><button data-auth-mode="register" aria-pressed="false">Create account</button></div>
+    <h2 id="auth-title">Good to see you.</h2><p class="muted" id="auth-subtitle">Your favorites, your bag, your everyday.</p>
+    <form id="auth-form">
+      <label id="name-field" hidden>Full name<input name="name" autocomplete="name" maxlength="100"></label>
+      <label>Email address<input name="email" type="email" autocomplete="email" required maxlength="254" placeholder="you@example.com"></label>
+      <label>Password<div class="password-field"><input name="password" id="password" type="password" autocomplete="current-password" required maxlength="128"><button class="icon-button" type="button" data-action="password" aria-label="Show password" title="Show password"><i data-lucide="eye"></i></button></div></label>
+      <p class="field-hint" id="password-hint" hidden>Use 12 to 128 characters.</p><p class="form-error" id="auth-error" role="alert" hidden></p>
+      <button type="submit" class="primary-button full-width" id="auth-submit">Sign in <i data-lucide="arrow-right"></i></button>
+    </form>
+  </dialog>
+
+  <dialog id="account-dialog" class="modal" aria-labelledby="account-title"><div class="modal-top"><p class="eyebrow">YOUR ACCOUNT</p><button class="icon-button" data-close="account-dialog" aria-label="Close account" title="Close"><i data-lucide="x"></i></button></div><h2 id="account-title">Hello.</h2><p class="muted" id="account-email"></p><button class="secondary-button full-width" data-action="account-orders">View your orders <i data-lucide="package"></i></button><button class="text-button logout-button" data-action="logout">Sign out <i data-lucide="log-out"></i></button></dialog>
+
+  <dialog id="bag-dialog" class="drawer" aria-labelledby="bag-title">
+    <div class="drawer-header"><div><p class="eyebrow">THE GOOD THINGS</p><h2 id="bag-title">Your bag<span>.</span></h2></div><button class="icon-button" data-close="bag-dialog" aria-label="Close shopping bag" title="Close"><i data-lucide="x"></i></button></div>
+    <div class="drawer-content" id="bag-items"></div>
+    <div class="bag-summary" id="bag-summary" hidden><div class="subtotal-row"><span>Subtotal</span><strong id="bag-total">$0.00</strong></div><p class="muted small">Demo orders only. No payment is collected.</p><form id="checkout-form"><label>Shipping address<textarea name="address" required minlength="8" maxlength="1000" rows="3" placeholder="Street address, city, state, postal code"></textarea></label><p class="form-error" id="checkout-error" role="alert" hidden></p><button class="primary-button full-width" id="checkout-button" type="submit">Place order <i data-lucide="arrow-right"></i></button></form></div>
+  </dialog>
+
+  <dialog id="orders-dialog" class="drawer orders-drawer" aria-labelledby="orders-title"><div class="drawer-header"><div><p class="eyebrow">YOUR DAILY ROTATION</p><h2 id="orders-title">Your orders<span>.</span></h2></div><button class="icon-button" data-close="orders-dialog" aria-label="Close orders" title="Close"><i data-lucide="x"></i></button></div><div class="drawer-content" id="orders-list"></div></dialog>
+
+  <dialog id="product-dialog" class="modal product-modal" aria-labelledby="product-title"><button class="icon-button product-close" data-close="product-dialog" aria-label="Close product details" title="Close"><i data-lucide="x"></i></button><div id="product-detail"></div></dialog>
+  <div class="toast" id="toast" role="status" aria-live="polite" hidden><i data-lucide="check-circle-2"></i><span id="toast-message"></span><button class="icon-button" data-action="dismiss-toast" aria-label="Dismiss notification" title="Dismiss"><i data-lucide="x"></i></button></div>
+  <noscript><p class="noscript">Please enable JavaScript to browse the collection and manage your bag.</p></noscript>
+</body>
+</html>
